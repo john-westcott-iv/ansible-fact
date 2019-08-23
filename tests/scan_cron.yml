@@ -2,6 +2,8 @@
 - name: "Test scan_cron - Python 2.7"
   hosts: "localhost"
   gather_facts: False
+  collections:
+    - john_westcott_iv.fact_gatherer
   vars:
     cron_files:
       - crontabs/etc/cron.deny
