@@ -3,7 +3,7 @@
   hosts: "localhost"
   gather_facts: False
   collections:
-    - john_westcott_iv.fact_gatherer
+    - john_westcott_iv.ansible_fact
   vars:
     cron_files:
       - crontabs/etc/cron.deny

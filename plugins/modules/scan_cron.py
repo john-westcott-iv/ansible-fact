@@ -80,7 +80,7 @@ files:
     permissions:
 '''
 
-from ansible_collections.john_westcott_iv.fact_gatherer.plugins.module_utils.fact_gatherer import FactGatherer
+from ansible_collections.john_westcott_iv.ansible_fact.plugins.module_utils.fact_gatherer import FactGatherer
 from os.path import isfile, isdir, join
 from os import walk, stat as os_stat
 import re
@@ -116,10 +116,10 @@ class CronGatherer(FactGatherer):
         return files
     
     
-    def get_cron_files(self, cron_files):
+    def get_cron_files(self):
         cron_paths = []
     
-        if len(cron_files) == 0:
+        if len(self.cron_files) == 0:
             # standard cron locations for cron file discovery
             if isfile("/etc/crontab"):
                 cron_paths.append("/etc/crontab")
@@ -135,10 +135,10 @@ class CronGatherer(FactGatherer):
     
             # Look for files in cron directories and append to cron_paths
             for a_dir in cron_dirs:
-                cron_files.extend( get_files(a_dir) )
+                self.cron_files.extend( get_files(a_dir) )
     
         else:
-            for a_file in cron_files:
+            for a_file in self.cron_files:
                 if isfile(a_file):
                     cron_paths.append(a_file)
     
@@ -166,7 +166,7 @@ class CronGatherer(FactGatherer):
         return return_files
     
     
-    def get_cron_data(self, cron_paths, strip_comments, parse_configs):
+    def get_cron_data(self, cron_paths):
         # Output data
         cron_data = list()
         # Regex for parsing data
@@ -200,7 +200,7 @@ class CronGatherer(FactGatherer):
                     if first_line and shebang_re.match(line):
                         job['configuration'].append(line)
                         first_line = False
-                    elif strip_comments:
+                    elif self.strip_comments:
                         line = re.sub('#.*', '', line)
                         if line != '':
                             job['configuration'].append(line)
@@ -208,7 +208,7 @@ class CronGatherer(FactGatherer):
                         job['configuration'].append(line)
     
     
-            if parse_configs and len(job['configuration']) > 0:
+            if self.parse_configs and len(job['configuration']) > 0:
                 job_info = {}
     
                 # Get the shebang line
@@ -271,22 +271,13 @@ class CronGatherer(FactGatherer):
         self.doDefault()
 
     def doDefault(self):
-        result = dict(
-            changed=False,
-            original_message='',
-            message=''
-        )
-
-        cron_files = self.params.get('cron_files')
-        strip_comments = self.params.get('strip_comments')
-        parse_configs = self.params.get('parse_configs')
         
         try:
-            cron = { 'files': self.get_cron_files(cron_files), }
+            cron = { 'files': self.get_cron_files(), }
         except Exception as e:
             self.fail_json(msg="Failed to search for cron files: {}".format(e))
 
-        if len(cron_files) == 0:
+        if len(self.cron_files) == 0:
             # If we are using the default files we can also go after the allow and deny files
             try:
                 cron['allow'] = self.get_cron_allow_or_deny('allow')
@@ -299,11 +290,18 @@ class CronGatherer(FactGatherer):
                 self.fail_json(msg="Failed to load cron.deny file: {}".format(e))
 
         try:
-            cron['all_scanned_files'] = self.get_cron_data(cron['files'], strip_comments, parse_configs)
+            cron['all_scanned_files'] = self.get_cron_data(cron['files'])
         except Exception as e:
             self.fail_json(msg="Failed to scan cron files: {}".format(e))
 
         self.exit_json(**{ 'ansible_facts': {'cron': cron } })
+
+    def __init__(self, argument_spec, **kwargs):
+        super(CronGatherer, self).__init__(argument_spec=argument_spec, **kwargs)
+        self.cron_files = self.params.get('cron_files')
+        self.strip_comments = self.params.get('strip_comments')
+        self.parse_configs = self.params.get('parse_configs')
+
 
     
 def main():

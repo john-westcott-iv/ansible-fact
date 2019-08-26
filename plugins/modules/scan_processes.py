@@ -56,66 +56,38 @@ running_processes:
         resident_size: '5036'
         start: Jul08
         stat: Ss
-        teletype: '?'
-        time: '3:32'
-        user: root
-      ...
-    ps_stdout_lines:
-      - root         1  0.0  0.0 171628  5056 ?        Ss   Jul08   3:32 /usr/lib/systemd/systemd --switched-root --system --deserialize 33
-      ...
-    total_running_processes: 359
+            teletype: '?'
+            time: '3:32'
+            user: root
+          ...
+        ps_stdout_lines:
+          - root         1  0.0  0.0 171628  5056 ?        Ss   Jul08   3:32 /usr/lib/systemd/systemd --switched-root --system --deserialize 33
+          ...
+        total_running_processes: 359
 '''
-
-from ansible.module_utils.basic import AnsibleModule
-import os, re, subprocess
-from os.path import isfile, isdir, join
-
-def main():
-    module_args = dict(
-        output_ps_stdout_lines=dict(
-            type='bool',
-            default=False,
-            required=False
-        ),
-        output_parsed_processes=dict(
-            type='bool',
-            default=True,
-            required=False
-        )
-    )
-
-    result = dict(
-        changed=False,
-        original_message='',
-        message=''
-    )
-
-    module = AnsibleModule(
-        argument_spec=module_args,
-        supports_check_mode=True
-    )
-
-    params = module.params
-
-    def get_processes():
+    
+from ansible_collections.john_westcott_iv.ansible_fact.plugins.module_utils.fact_gatherer import FactGatherer
+import re
+    
+class ProcessGatherer(FactGatherer):
+    def get_processes(self, command):
         re_header = re.compile(r'^USER+.*')
-        proc_stats = dict()
-        procs = list()
-        count = 0
-        running = subprocess.check_output(["ps auxww"], universal_newlines=True, shell=True)
-        for l in running.split('\n'):
-            if len(l) > 0 and re_header.search(l) is None:
-                procs.append(l.replace('\n', '').replace('\t', '    '))
-                count += 1
-        proc_stats['stdout'] = procs
-        proc_stats['total_running_processes'] = count
-        return proc_stats
+        self.raw_processes = []
+#### How do we call run_command????
+        rc, stdout, stderr = self.run_command(command, check_rc=True)
+        for line in stdout.split('\n'):
+            self.raw_output.append(line)
+            if len(line) > 0 and re_header.search(line) is None:
+                self.raw_processes.append(line)
 
-    def parse_process_data(procs):
-        re_ps = re.compile(r'^(?P<user>[\w\+\-\_\$]+)\s+(?P<pid>[0-9]+)\s+(?P<cpu>[0-9\.]+)\s+(?P<mem>[0-9\.]+)\s+(?P<vsz>[0-9]+)\s+(?P<rss>[0-9]+)\s+(?P<tty>[a-zA-Z0-9\?\/]+)\s+(?P<stat>[DIRSTtWXZ\<NLsl\+]+)\s+(?P<start>[A-Za-z0-9\:]+)\s+(?P<time>[0-9\:]+)\s+(?P<command>.*)$')
-        processes = list()
+    def parse_process_data(self):
+        re_ps = re.compile(r'^(?P<user>[\w\+\-\_\$]+)\s+(?P<pid>[0-9]+)\s+(?P<cpu>[0-9\.]+)\s+(?P<mem>[0-9\.]+)\s+(?P<vsz>[0-9]+)\s+(?P<rss>[0-9]+)\s+(?P<tty>[a-zA-Z0-9\?\/]+)\s+(?P<stat>[DIRSTtWXZ\<NLsl\+]+)\s+(?P<start>[A-Za-z0-9\:]+)\s+(?P<time>[0-9\:\.]+)\s+(?P<command>.*)$')
 
-        for proc in procs:
+        self.parsed_processes = []
+        for proc in self.raw_processes:
+            with open("/tmp/john", "w") as f:
+                f.write(proc)
+
             process = dict()
             if re_ps.search(proc):
                 process['user'] = re_ps.search(proc).group('user')
@@ -129,24 +101,42 @@ def main():
                 process['start'] = re_ps.search(proc).group('start')
                 process['time'] = re_ps.search(proc).group('time')
                 process['command'] = re_ps.search(proc).group('command')
-                processes.append(process)
-        return processes
+                self.parsed_processes.append(process)
 
-    # Do work
-    raw_procs = get_processes()
-    if params['output_parsed_processes']:
-        proc_data = parse_process_data(raw_procs['stdout'])
+    def doDefault(self):
+        # Do work
+        self.get_processes(['/bin/ps', 'auxww'])
 
-    # Build output
-    processes = dict()
-    if params['output_ps_stdout_lines']:
-        processes['ps_stdout_lines'] = raw_procs['stdout']
-    if params['output_parsed_processes']:
-        processes['total_running_processes'] = raw_procs['total_running_processes']
-        processes['processes'] = proc_data
-    result = {'ansible_facts': {'running_processes': processes}}
+        # Build output
+        processes = dict()
+        if self.output_ps_stdout_lines:
+            processes['ps_stdout_lines'] = self.raw_output
 
-    module.exit_json(**result)
+        if self.output_parsed_processes:
+            self.parse_process_data()
+            processes['total_running_processes'] = len(self.parsed_processes)
+            processes['processes'] = self.parsed_processes
+        self.exit_json(**{'ansible_facts': {'running_processes': processes}})
+
+    def __init__(self, argument_spec, **kwargs):
+        super(ProcessGatherer, self).__init__(argument_spec=argument_spec, **kwargs)
+        self.output_parsed_processes = self.params['output_parsed_processes']
+        self.output_ps_stdout_lines = self.params['output_ps_stdout_lines']
+        self.raw_output = []
+        self.parsed_processes = []
+
+
+
+def main():
+    module = ProcessGatherer(
+        dict(
+            output_ps_stdout_lines=dict(type='bool', default=False, required=False),
+            output_parsed_processes=dict(type='bool', default=True, required=False),
+        ),
+        supports_check_mode=True,
+    )
+
+    module.main()
 
 
 if __name__ == '__main__':
