@@ -73,151 +73,178 @@ local_groups:
     sample: "[{'administrators': [], 'encrypted_password': '', 'gid': '0', 'group': 'root', 'gshadow': True, 'members': []}]"
 '''
 
-from ansible.module_utils.basic import AnsibleModule
-import os
+from ansible_collections.john_westcott_iv.ansible_fact.plugins.module_utils.fact_gatherer import FactGatherer
+from os.path import isfile
 
-def main():
-    module_args = dict(
-        passwd_path=dict(type='str', required=False, default='/etc/passwd'),
-        shadow_path=dict(type='str', required=False, default='/etc/shadow'),
-        group_path=dict(type='str', required=False, default='/etc/group'),
-        gshadow_path=dict(type='str', required=False, default='/etc/gshadow')
-    )
-
-    result = dict(
-        changed=False,
-        original_message='',
-        message=''
-    )
-
-    module = AnsibleModule(
-        argument_spec=module_args,
-        supports_check_mode=True
-    )
-
-    def get_passwd(path):
+class UserGroupGatherer(FactGatherer):
+    def read_lines(self, file_name):
+        lines = []
+        try:
+            with open(file_name, 'rt') as f:
+                for a_line in f:
+                    lines.append(self.remove_comment(a_line.replace("\n", ""), '#'))
+        except Exception as e:
+            self.fail_json(msg="Failed to read {} : {}".format(file_name, e))
+        
+        return lines
+            
+    def get_passwd(self):
         # conditional for OS type and set path if diverges from Linux
-        passwd_file = open(path, 'rt')
         users = list()
-        for u in passwd_file:
+        if not isfile(self.passwd_path): 
+            return users
+        line_number = 0
+        for a_line in self.read_lines(self.passwd_path):
+            line_number = line_number + 1
             user = dict()
-            field = u.replace('\n', '').split(':')
-            if len(field) > 0:
-                user['user'] = field[0]
-                if field[1] == 'x':
+            fields = a_line.split(':')
+            if len(fields) == 7:
+                user['user'] = fields[0]
+                if fields[1] == self.shadow_character:
                     user['shadow'] = True
                 else:
                     user['shadow'] = False
-                    user['encrypted_password'] = field[1]
-                user['uid'] = field[2]
-                user['gid'] = field[3]
-                user['comment'] = field[4]
-                user['home'] = field[5]
-                user['shell'] = field[6]
-            users.append(user)
-        passwd_file.close()
+                    user['encrypted_password'] = fields[1]
+                user['uid'] = fields[2]
+                user['gid'] = fields[3]
+                user['comment'] = fields[4]
+                user['home'] = fields[5]
+                user['shell'] = fields[6]
+                users.append(user)
+            elif len(fields) > 1 or fields[0] != '':
+                self.fail_json(msg="Failed to parse line {} in {}".format(line_number, self.passwd_path))
         return users
 
-    def get_shadow(path):
+    def get_shadow(self):
         # conditional for OS type and set path if diverges from Linux
-        shadow_file = open(path, 'rt')
         susers = list()
-        for u in shadow_file:
+        if not isfile(self.shadow_path): 
+            return susers
+        line_number = 0
+        for a_line in self.read_lines(self.shadow_path):
+            line_number = line_number + 1
             user = dict()
-            field = u.replace('\n', '').split(':')
-            if len(field) > 0:
-                user['user'] = field[0]
-                user['encrypted_password'] = field[1]
-                user['last_pw_change'] = field[2]
-                user['min_pw_age'] = field[3]
-                user['max_pw_age'] = field[4]
-                user['pw_warning_days'] = field[5]
-                user['pw_inactive_days'] = field[6]
-                user['account_expiration'] = field[7]
-                user['reserved'] = field[8]
-            susers.append(user)
-        shadow_file.close()
+            fields = split(':')
+            if len(fields) == 9:
+                user['user'] = fields[0]
+                user['encrypted_password'] = fields[1]
+                user['last_pw_change'] = fields[2]
+                user['min_pw_age'] = fields[3]
+                user['max_pw_age'] = fields[4]
+                user['pw_warning_days'] = fields[5]
+                user['pw_inactive_days'] = fields[6]
+                user['account_expiration'] = fields[7]
+                user['reserved'] = fields[8]
+                susers.append(user)
+            elif len(fields) > 1 or fields[0] != '':
+                self.fail_json(msg="Failed to parse line {} in {}".format(line_number, self.passwd_path))
+            
         return susers
 
-    def get_group(path):
-        # conditional for OS type and set path if diverges from Linux
-        group_file = open(path, 'rt')
+    def get_group(self):
         groups = list()
-        for g in group_file:
+        if not isfile(self.group_path): 
+            return groups
+        line_number = 0
+        for a_line in self.read_lines(self.group_path):
+            line_number = line_number + 1
+            # conditional for OS type and set path if diverges from Linux
+
             group = dict()
-            field = g.replace('\n', '').split(':')
-            if len(field) > 0:
-                group['group'] = field[0]
-                if field[1] == 'x' or field[1] == '!':
+            fields = a_line.split(':')
+            if len(fields) == 4:
+                group['group'] = fields[0]
+                if fields[1] == self.shadow_character:
                     group['gshadow'] = True
                 else:
-                    group['encrypted_password'] = field[1]
+                    group['encrypted_password'] = fields[1]
                     group['gshadow'] = False
-                group['gid'] = field[2]
-                if field[3] != '':
-                    members = field[3].split(',')
+                group['gid'] = fields[2]
+                if fields[3] != '':
+                    members = fields[3].split(',')
                 else:
                     members = list()
                 group['members'] = members
-            groups.append(group)
-        group_file.close()
+                groups.append(group)
+            # An empty string will be split into [''] 
+            elif len(fields) > 1 or fields[0] != '':
+                self.fail_json(msg="Failed to parse line {} in {}: {}".format(line_number, self.group_path, a_line))
+
         return groups
 
-    def get_gshadow(path):
-        # conditional for OS type and set path if diverges from Linux
-        gshadow_file = open(path, 'rt')
+    def get_gshadow(self):
         sgroups = list()
-        for g in gshadow_file:
+        if not isfile(self.gshadow_path): 
+            return sgroups
+        line_number = 0
+        for a_line in self.read_lines(self.gshadow_path):
+            line_number = line_number + 1
             sgroup = dict()
-            field = g.replace('\n', '').split(':')
-            if len(field) > 0:
-                sgroup['group'] = field[0]
-                sgroup['encrypted_password'] = field[1]
-                if field[2] != '':
-                    administrators = field[2].split(',')
+            fields = a_line.split(':')
+            if len(fields) == 4:
+                sgroup['group'] = fields[0]
+                sgroup['encrypted_password'] = fields[1]
+                if fields[2] != '':
+                    administrators = fields[2].split(',')
                 else:
                     administrators = list()
                 sgroup['administrators'] = administrators
-                if field[3] != '':
-                    members = field[3].split(',')
+                if fields[3] != '':
+                    members = fields[3].split(',')
                 else:
                     members = list()
                 sgroup['members'] = members
-            sgroups.append(sgroup)
-        gshadow_file.close()
+                sgroups.append(sgroup)
+            elif len(fields) > 1 or fields[0] != '':
+                self.fail_json(msg="Failed to parse line {} in {}".format(line_number, self.gshadow_path))
+
         return sgroups
 
-    def merge_group_data(groups, gshadow):
+    def merge_data(self, starting_dict, adding_dict, merge_key):
         # takes list of group dictionaries (groups) and
         #   list of shadow group dictionaries (gshadow)
-        groups_merged = list()
-        for g in groups:
-            key = g['group']
-            for s in gshadow:
-                if s['group'] == key:
-                    s.update(g)
-                    groups_merged.append(s)
-        return groups_merged
+        merged_items = list()
+        for item in starting_dict:
+            for item_2 in adding_dict:
+              if item_2[merge_key] == item[merge_key]:
+                  # NOTE: This will technically actually change item in starting_dict
+                  item.update(item2)
+            merged_items.append(item)
+        return merged_items
 
-    def merge_user_data(users, shadow):
-        # takes list of user dictionaries (users) and
-        #   list of shadow user dictionaries (shadow)
-        users_merged = list()
-        for u in users:
-            key = u['user']
-            for s in shadow:
-                if s['user'] == key:
-                    s.update(u)
-                    users_merged.append(s)
-        return users_merged
+    def doDarwin(self):
+        self.warn("Darwin is not fully implemented, we don\'t read the OS X user databases".format(self.shadow_character))
+        self.shadow_character = '*'
+        self.doDefault()
 
-    groups = merge_group_data(get_group(module.params['group_path']), get_gshadow(module.params['gshadow_path']))
-    users = merge_user_data(get_passwd(module.params['passwd_path']),get_shadow(module.params['shadow_path']))
+    def doDefault(self):
+        groups = self.merge_data(self.get_group(), self.get_gshadow(), 'group')
+        users = self.merge_data(self.get_passwd(), self.get_shadow(), 'user')
+        result = {'ansible_facts': { 'local_users': users, 'local_groups': groups }}
 
-    output = {'local_users': users, 'local_groups': groups}
-    result = {'ansible_facts': output}
+        self.exit_json(**result)
 
-    module.exit_json(**result)
+    def __init__(self, argument_spec, **kwargs):
+        super(UserGroupGatherer, self).__init__(argument_spec=argument_spec, **kwargs)
+        self.passwd_path = self.params.get('passwd_path')
+        self.shadow_path = self.params.get('shadow_path')
+        self.group_path = self.params.get('group_path')
+        self.gshadow_path = self.params.get('gshadow_path')
+        self.shadow_character = 'x'
+
+def main():
+    module = UserGroupGatherer(
+        dict(
+            passwd_path=dict(type='str', required=False, default='/etc/passwd'),
+            shadow_path=dict(type='str', required=False, default='/etc/shadow'),
+            group_path=dict(type='str', required=False, default='/etc/group'),
+            gshadow_path=dict(type='str', required=False, default='/etc/gshadow')
+        ),
+        supports_check_mode=True
+    )
+
+    module.main()
+
 
 
 if __name__ == '__main__':
