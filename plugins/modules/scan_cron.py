@@ -296,10 +296,13 @@ class CronGatherer(FactGatherer):
         self.exit_json(**{ 'ansible_facts': {'cron': cron } })
 
     def __init__(self, argument_spec, **kwargs):
+        # Call the parent constructor
         super(CronGatherer, self).__init__(argument_spec=argument_spec, **kwargs)
+        # Extract the module params into class variables
         self.cron_files = self.params.get('cron_files')
         self.strip_comments = self.params.get('strip_comments')
         self.parse_configs = self.params.get('parse_configs')
+        # Set additional class variables
 
 
     

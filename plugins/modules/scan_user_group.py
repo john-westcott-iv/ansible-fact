@@ -225,11 +225,14 @@ class UserGroupGatherer(FactGatherer):
         self.exit_json(**result)
 
     def __init__(self, argument_spec, **kwargs):
+        # Call the parent constructor
         super(UserGroupGatherer, self).__init__(argument_spec=argument_spec, **kwargs)
+        # Extract the module params into class variables
         self.passwd_path = self.params.get('passwd_path')
         self.shadow_path = self.params.get('shadow_path')
         self.group_path = self.params.get('group_path')
         self.gshadow_path = self.params.get('gshadow_path')
+        # Set additional class variables
         self.shadow_character = 'x'
 
 def main():

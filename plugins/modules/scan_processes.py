@@ -119,9 +119,12 @@ class ProcessGatherer(FactGatherer):
         self.exit_json(**{'ansible_facts': {'running_processes': processes}})
 
     def __init__(self, argument_spec, **kwargs):
+        # Call the parent constructor
         super(ProcessGatherer, self).__init__(argument_spec=argument_spec, **kwargs)
+        # Extract the module params into class variables
         self.output_parsed_processes = self.params['output_parsed_processes']
         self.output_ps_stdout_lines = self.params['output_ps_stdout_lines']
+        # Set additional class variables
         self.raw_output = []
         self.parsed_processes = []
 
