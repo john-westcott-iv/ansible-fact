@@ -171,7 +171,6 @@ class CronGatherer(FactGatherer):
         cron_data = list()
         # Regex for parsing data
         variable_re = re.compile(r'^([a-zA-Z0-9_-]*)[ \t]*=[ \t]*(.*)$')
-        comment_re = re.compile(r'^#+')
         shebang_re = re.compile(r'^(#!){1}(.*)$')
         #                            .--- minute (0 - 59)
         #                            |                    .--- hour (0 - 23)
@@ -201,7 +200,7 @@ class CronGatherer(FactGatherer):
                         job['configuration'].append(line)
                         first_line = False
                     elif self.strip_comments:
-                        line = re.sub('#.*', '', line)
+                        line = self.remove_comment(line, '#')
                         if line != '':
                             job['configuration'].append(line)
                     else:
